@@ -1,0 +1,213 @@
+package project;
+import java.io.*;
+import java.nio.file.*;
+import java.util.regex.*;
+import java.util.zip.*;
+import javax.crypto.*;
+import javax.crypto.spec.*;
+
+public class MainApp {
+
+    // Метод для чтения файла
+    private static String readFile(String filePath) throws IOException {
+        return new String(Files.readAllBytes(Paths.get(filePath)));
+    }
+
+    // Метод для записи в файл
+    private static void writeFile(String filePath, String data) throws IOException {
+        Files.write(Paths.get(filePath), data.getBytes());
+    }
+
+    // Метод для обработки арифметических операций с использованием регулярных выражений
+    private static String processArithmeticWithRegex(String input) {
+        // Регулярное выражение для поиска арифметических операций
+        String regex = "(\\d+)([+\\-*/])(\\d+)";
+        Pattern pattern = Pattern.compile(regex);
+        Matcher matcher = pattern.matcher(input);
+
+        StringBuilder result = new StringBuilder(input);
+
+        // Пока мы находим операции
+        while (matcher.find()) {
+            // Извлекаем числа и оператор
+            int num1 = Integer.parseInt(matcher.group(1));
+            char operator = matcher.group(2).charAt(0);
+            int num2 = Integer.parseInt(matcher.group(3));
+
+            // Вычисляем результат
+            int calculationResult = calculate(num1, num2, operator);
+
+            // Заменяем выражение результатом
+            result.replace(matcher.start(), matcher.end(), String.valueOf(calculationResult));
+
+            // Создаём новый Matcher для обработки обновлённой строки
+            matcher = pattern.matcher(result);
+        }
+
+        return result.toString();
+    }
+
+    // Метод для вычисления арифметической операции
+    private static int calculate(int num1, int num2, char operator) {
+        switch (operator) {
+            case '+': return num1 + num2;
+            case '-': return num1 - num2;
+            case '*': return num1 * num2;
+            case '/': return num1 / num2;
+            default: throw new IllegalArgumentException("Unsupported operator: " + operator);
+        }
+    }
+
+    // Метод для архивации файла
+    public static void zipFile(String sourceFilePath, String zipFilePath) throws IOException {
+        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFilePath))) {
+            File fileToZip = new File(sourceFilePath);
+            try (FileInputStream fis = new FileInputStream(fileToZip)) {
+                ZipEntry zipEntry = new ZipEntry(fileToZip.getName());
+                zos.putNextEntry(zipEntry);
+
+                byte[] buffer = new byte[1024];
+                int length;
+                while ((length = fis.read(buffer)) >= 0) {
+                    zos.write(buffer, 0, length);
+                }
+                zos.closeEntry();
+            }
+        }
+    }
+
+    // Метод для разархивации файла
+    public static void unzipFile(String zipFilePath, String destDirectory) throws IOException {
+        byte[] buffer = new byte[1024];
+        try (ZipInputStream zis = new ZipInputStream(new FileInputStream(zipFilePath))) {
+            ZipEntry zipEntry = zis.getNextEntry();
+
+            while (zipEntry != null) {
+                File newFile = newFile(new File(destDirectory), zipEntry);
+                try (FileOutputStream fos = new FileOutputStream(newFile)) {
+                    int len;
+                    while ((len = zis.read(buffer)) > 0) {
+                        fos.write(buffer, 0, len);
+                    }
+                }
+                zipEntry = zis.getNextEntry();
+            }
+        }
+    }
+
+
+    // Эта вспомогательная функция помогает избежать проблем с путями
+    private static File newFile(File destinationDir, ZipEntry zipEntry) throws IOException {
+        File destFile = new File(destinationDir, zipEntry.getName());
+        String destDirPath = destinationDir.getCanonicalPath();
+        String destFilePath = destFile.getCanonicalPath();
+        if (!destFilePath.startsWith(destDirPath + File.separator)) {
+            throw new IOException("Entry is outside of the target directory: " + zipEntry.getName());
+        }
+        return destFile;
+    }
+
+    // Метод для шифрования файла
+    public static void encryptFile(String filePath, String outputFilePath, String secretKey) throws Exception {
+        SecretKeySpec keySpec = new SecretKeySpec(secretKey.getBytes(), "AES");
+        Cipher cipher = Cipher.getInstance("AES");
+        cipher.init(Cipher.ENCRYPT_MODE, keySpec);
+
+        try (FileInputStream fis = new FileInputStream(filePath);
+             FileOutputStream fos = new FileOutputStream(outputFilePath);
+             CipherOutputStream cos = new CipherOutputStream(fos, cipher)) {
+
+            byte[] buffer = new byte[1024];
+            int read;
+            while ((read = fis.read(buffer)) != -1) {
+                cos.write(buffer, 0, read);
+            }
+        }
+    }
+
+    // Метод для дешифрования файла
+    public static void decryptFile(String filePath, String outputFilePath, String secretKey) throws Exception {
+        SecretKeySpec keySpec = new SecretKeySpec(secretKey.getBytes(), "AES");
+        Cipher cipher = Cipher.getInstance("AES");
+        cipher.init(Cipher.DECRYPT_MODE, keySpec);
+
+        try (FileInputStream fis = new FileInputStream(filePath);
+             CipherInputStream cis = new CipherInputStream(fis, cipher);
+             FileOutputStream fos = new FileOutputStream(outputFilePath)) {
+
+            byte[] buffer = new byte[1024];
+            int read;
+            while ((read = cis.read(buffer)) != -1) {
+                fos.write(buffer, 0, read);
+            }
+        }
+    }
+
+    // Главный метод для обработки файла
+    public static void processFile(String inputFilePath, String outputFilePath, boolean isZip, boolean isEncrypted, String secretKey) throws Exception {
+        String tempFilePath = "tempfile.txt";  // Временный файл для работы
+
+        // Если файл заархивирован, разархивируем
+        if (isZip) {
+            unzipFile(inputFilePath, tempFilePath);
+        } else {
+            tempFilePath = inputFilePath;
+        }
+
+        // Если файл зашифрован, дешифруем
+        if (isEncrypted) {
+            String decryptedFilePath = tempFilePath + "_decrypted";
+            decryptFile(tempFilePath, decryptedFilePath, secretKey);
+            tempFilePath = decryptedFilePath;
+        }
+
+        // Чтение и обработка данных
+        String inputData = readFile(tempFilePath);
+        String processedData = processArithmeticWithRegex(inputData);
+
+        // Запишем обработанные данные в выходной файл
+        writeFile(outputFilePath, processedData);
+
+        // Если файл был зашифрован, зашифруем его обратно
+        if (isEncrypted) {
+            encryptFile(outputFilePath, outputFilePath, secretKey);
+        }
+
+        // Если файл был заархивирован, заархивируем его
+        if (isZip) {
+            zipFile(outputFilePath, outputFilePath + ".zip");
+        }
+
+        // Удаление временных файлов
+        Files.deleteIfExists(Paths.get(tempFilePath));
+        Files.deleteIfExists(Paths.get(tempFilePath + "_decrypted"));
+    }
+
+    // Основной метод для ввода и выбора опций
+    public static void main(String[] args) throws Exception {
+        // Параметры консоли
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+
+        System.out.println("Введите путь к входному файлу:");
+        String inputFilePath = reader.readLine();
+
+        System.out.println("Введите путь к выходному файлу:");
+        String outputFilePath = reader.readLine();
+
+
+        System.out.println("Выберите опцию (1: Архивированный, 2: Зашифрованный, 3: Обычный):");
+        String fileType = reader.readLine();
+
+        System.out.println("Введите секретный ключ для шифрования (если требуется):");
+        String secretKey = reader.readLine();
+
+        System.out.println("Выберите действие: \n1. Архивировать \n2. Шифровать \n3. Обычный файл");
+        boolean isZip = fileType.equals("1");
+        boolean isEncrypted = fileType.equals("2");
+
+        // Обработка файла
+        processFile(inputFilePath, outputFilePath, isZip, isEncrypted, secretKey);
+
+        System.out.println("Обработка завершена!");
+    }
+}
